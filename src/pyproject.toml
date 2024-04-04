@@ -1,0 +1,22 @@
+[project]
+name = "fastapi_app"
+version = "1.0.0"
+description = "Create a relecloud demo application with fastapi and postgres-flexible"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "python-dotenv",
+    "environs",
+    "azure-identity",
+    "aiohttp",
+    "asyncpg",
+    "SQLAlchemy[asyncio]",
+    "pgvector",
+    "openai",
+    "tiktoken",
+    "llm-messages-token-helper"
+]
+
+[build-system]
+requires = ["flit_core<4"]
+build-backend = "flit_core.buildapi"
