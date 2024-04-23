@@ -10,32 +10,20 @@ import fastapi
 import openai
 import sqlalchemy.exc
 from azure.identity import DefaultAzureCredential
+from dotenv import load_dotenv
 from environs import Env
-from sqlalchemy import Index, text
+from pgvector.asyncpg import register_vector
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from .globals import global_storage
 from .models import Base, Item
 
 
-def create_index(conn):
-    # Define HNSW index to support vector similarity search through the vector_cosine_ops access method (cosine distance). The SQL operator for cosine distance is written as <=>.
-    index = Index(
-        "hnsw_index_for_cosine_distance_similarity_search",
-        Item.embedding,
-        postgresql_using="hnsw",
-        postgresql_with={"m": 16, "ef_construction": 64},
-        postgresql_ops={"embedding": "vector_cosine_ops"},
-    )
-
-    # Create the HNSW index
-    index.drop(conn, checkfirst=True)
-    index.create(conn)
-
-
 @contextlib.asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
     # setup db engine
+    load_dotenv(override=True)
 
     POSTGRES_HOST = os.environ["POSTGRES_HOST"]
     POSTGRES_USERNAME = os.environ["POSTGRES_USERNAME"]
@@ -61,22 +49,22 @@ async def lifespan(app: fastapi.FastAPI):
     async with engine.begin() as conn:
         # Create pgvector extension
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        # Create all tables defined in this model in the database
+        # Create all tables (and indexes) defined in this model in the database
         await conn.run_sync(Base.metadata.create_all)
-
-        # Create the HNSW index
-        await conn.run_sync(create_index)
+        register_vector(conn)
 
     async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
     async with async_session_maker() as session:
-        # Insert the items from the JSON file
-        # get path of this file using pathlib
+        # Insert the items from the JSON file into the database
         current_dir = os.path.dirname(os.path.realpath(__file__))
         with open(os.path.join(current_dir, "catalog.json")) as f:
             catalog_items = json.load(f)
             for catalog_item in catalog_items:
-
+                # check if item already exists
+                item = await session.execute(select(Item).filter(Item.id == catalog_item["Id"]))
+                if item.scalars().first():
+                    continue
                 item = Item(
                     id=catalog_item["Id"],
                     type=catalog_item["Type"],

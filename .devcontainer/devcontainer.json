@@ -8,7 +8,7 @@
 	"forwardPorts": [5432],
 	"portsAttributes": {
 		"5432": {"label": "PostgreSQL port", "onAutoForward": "silent"},
-		"50505": {"label": "Quart port", "onAutoForward": "openBrowser"}
+		"3100": {"label": "FastAPI port", "onAutoForward": "openBrowser"}
 	},
     "features": {
         "ghcr.io/devcontainers/features/node:1": {
@@ -44,29 +44,6 @@
 					},
 					"editor.defaultFormatter": "ms-python.black-formatter"
 				},
-				"sqltools.connections": [
-					{
-						"name": "Local database",
-						"driver": "PostgreSQL",
-						"server": "localhost",
-						"port": 5432,
-						"database": "postgres",
-						"username": "admin",
-						"password": "LocalPasswordOnly"
-					},
-					{
-						"name": "Azure database",
-						"driver": "PostgreSQL",
-						"server": "<HOSTNAME>.postgres.database.azure.com",
-						"port": 5432,
-						"database": "postgres",
-						"username": "<USERNAME>",
-						"askForPassword": true,
-						"pgOptions": {
-							"ssl": true
-						}
-					}
-				],
 				"files.exclude": {
 					".ruff_cache": true,
 					".pytest_cache": true

@@ -35,7 +35,7 @@ class Item:
             "id": self.id,
             "name": self.name,
             "embedding": Item.trim_embedding(self.embedding),
-            "description": self.description
+            "description": self.description,
         }
 
     @classmethod
@@ -56,7 +56,6 @@ class ThoughtStep:
     title: str
     description: Any | None
     props: dict[str, Any] | None = None
-
 
 
 class RAGChat:
@@ -85,10 +84,9 @@ class RAGChat:
 
     @property
     def system_message_chat_conversation(self):
-        return """Assistant helps customers with questions about producs.
-        Answer ONLY with the product details listed in the sources. If there isn't enough information below, say you don't know. Do not generate answers that don't use the sources below.
-        For tabular information return it as an html table. Do not return markdown format. If the question is not in English, answer in the language used in the question.
-        Each source has a name followed by colon and the actual information, always include the source name for each fact you use in the response. Use square brackets to reference the source, for example [info1.txt]. Don't combine sources, list each source separately, for example [info1.txt][info2.pdf].
+        return """Assistant helps customers with questions about products. Respond as if you are a salesperson helping a customer in a store. Do NOT respond with tables.
+        Answer ONLY with the product details listed in the products. If there isn't enough information below, say you don't know. Do not generate answers that don't use the sources below.
+        Each product has an ID in brackets followed by colon and the product details, always include the product ID for each product you use in the response. Use square brackets to reference the source, for example [52]. Don't combine citations, list each product separately, for example [27][51].
         {injected_prompt}
         """
 
@@ -101,7 +99,7 @@ class RAGChat:
         gpt_deployment: str | None,  # Not needed for non-Azure OpenAI
         embed_deployment: str | None,  # Not needed for non-Azure OpenAI or for retrieval_mode="text"
         embed_model: str,
-        embed_dimensions: int
+        embed_dimensions: int,
     ):
         self.searcher = searcher
         self.openai_client = openai_client
@@ -112,14 +110,8 @@ class RAGChat:
         self.embed_dimensions = embed_dimensions
         self.gpt_token_limit = get_token_limit(gpt_model)
 
-
-    def get_sources_content(
-        self, items: list[Item]
-    ) -> list[str]:
-            return [
-                f"{(item.id)}:{nonewlines(item.description or '')}"
-                for item in items
-            ]
+    def get_sources_content(self, items: list[Item]) -> list[str]:
+        return [f"[{(item.id)}]:{item.to_str_for_rag()}\n\n" for item in items]
 
     async def compute_text_embedding(self, q: str):
         SUPPORTED_DIMENSIONS_MODEL = {
@@ -144,33 +136,36 @@ class RAGChat:
 
     def get_system_prompt(self, override_prompt: str | None) -> str:
         if override_prompt is None:
-            return self.system_message_chat_conversation.format(
-                injected_prompt=""
-            )
+            return self.system_message_chat_conversation.format(injected_prompt="")
         elif override_prompt.startswith(">>>"):
-            return self.system_message_chat_conversation.format(
-                injected_prompt=override_prompt[3:] + "\n"
-            )
+            return self.system_message_chat_conversation.format(injected_prompt=override_prompt[3:] + "\n")
         else:
             return override_prompt
 
     def get_search_query(self, chat_completion: ChatCompletion, user_query: str):
         response_message = chat_completion.choices[0].message
-
+        search_query = self.NO_RESPONSE
+        filters = []
         if response_message.tool_calls:
             for tool in response_message.tool_calls:
                 if tool.type != "function":
                     continue
                 function = tool.function
-                if function.name == "search_sources":
+                if function.name == "search_database":
                     arg = json.loads(function.arguments)
                     search_query = arg.get("search_query", self.NO_RESPONSE)
-                    if search_query != self.NO_RESPONSE:
-                        return search_query
+                    if "price_filter" in arg:
+                        price_filter = arg["price_filter"]
+                        filters.append(
+                            {
+                                "column": "price",
+                                "comparison_operator": price_filter["comparison_operator"],
+                                "value": price_filter["value"],
+                            }
+                        )
         elif query_text := response_message.content:
-            if query_text.strip() != self.NO_RESPONSE:
-                return query_text
-        return user_query
+            search_query = query_text.strip()
+        return search_query, filters
 
     async def run(
         self, messages: list[dict], stream: bool = False, session_state: Any = None, context: dict[str, Any] = {}
@@ -226,7 +221,7 @@ class RAGChat:
             event = event_chunk.model_dump()  # Convert pydantic model to dict
             if event["choices"]:
                 yield event
-    
+
     @overload
     async def run_until_final_call(
         self,
@@ -267,15 +262,29 @@ class RAGChat:
             {
                 "type": "function",
                 "function": {
-                    "name": "search_sources",
-                    "description": "Retrieve sources from the Azure AI Search index",
+                    "name": "search_database",
+                    "description": "Search PostgreSQL database for relevant products based on the user query",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "search_query": {
                                 "type": "string",
-                                "description": "Query string to retrieve documents from azure search eg: 'Health care plan'",
-                            }
+                                "description": "Query string to use for full text search, e.g. 'red shoes'",
+                            },
+                            "price_filter": {
+                                "type": "object",
+                                "description": "Filter search results based on price of the product",
+                                "properties": {
+                                    "comparison_operator": {
+                                        "type": "string",
+                                        "description": "Operator to compare the column value, either '>', '<', '>=', '<=', '=='",
+                                    },
+                                    "value": {
+                                        "type": "number",
+                                        "description": "Value to compare against, e.g. 30",
+                                    },
+                                },
+                            },
                         },
                         "required": ["search_query"],
                     },
@@ -298,13 +307,13 @@ class RAGChat:
             # Azure OpenAI takes the deployment name as the model name
             model=self.gpt_deployment if self.gpt_deployment else self.gpt_model,
             temperature=0.0,  # Minimize creativity for search query generation
-            max_tokens=100,  # Setting too low risks malformed JSON, setting too high may affect performance
+            max_tokens=1000,  # Setting too low risks malformed JSON, setting too high may affect performance
             n=1,
             tools=tools,
             tool_choice="auto",
         )
 
-        query_text = self.get_search_query(chat_completion, original_user_query)
+        query_text, filters = self.get_search_query(chat_completion, original_user_query)
 
         # STEP 2: Retrieve relevant documents from the search index with the GPT optimized query
 
@@ -317,11 +326,7 @@ class RAGChat:
         if not has_text:
             query_text = None
 
-        results = await self.searcher.hybrid_search(
-            original_user_query,
-            vector,
-            top
-        )
+        results = await self.searcher.search(query_text, vector, top, filters)
 
         sources_content = self.get_sources_content(results)
         content = "\n".join(sources_content)
@@ -329,7 +334,9 @@ class RAGChat:
         # STEP 3: Generate a contextual and content specific answer using the search results and chat history
 
         # Allow client to replace the entire prompt, or to inject into the exiting prompt using >>>
-        system_message = self.get_system_prompt(overrides.get("prompt_template"),)
+        system_message = self.get_system_prompt(
+            overrides.get("prompt_template"),
+        )
 
         response_token_limit = 1024
         messages_token_limit = self.gpt_token_limit - response_token_limit
