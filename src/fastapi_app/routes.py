@@ -3,14 +3,14 @@ import fastapi
 from .api_models import ChatRequest
 from .globals import global_storage
 from .postgres_searcher import PostgresSearcher
-from .rag_simple import SimpleRAGChat
+from .rag_advanced import AdvancedRAGChat
 
 router = fastapi.APIRouter()
 
 
 @router.post("/chat")
 async def chat_handler(chat_request: ChatRequest):
-    ragchat = SimpleRAGChat(
+    ragchat = AdvancedRAGChat(
         searcher=PostgresSearcher(global_storage.async_session_maker),
         openai_chat_client=global_storage.openai_chat_client,
         chat_model=global_storage.openai_chat_model,

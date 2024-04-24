@@ -9,6 +9,17 @@ class PostgresSearcher:
     def __init__(self, async_session_maker):
         self.async_session_maker = async_session_maker
 
+    def build_filter_clause(self, filters) -> tuple[str, str]:
+        filter_clauses = []
+        for filter in filters:
+            if isinstance(filter["value"], str):
+                filter["value"] = f"'{filter['value']}'"
+            filter_clauses.append(f"{filter['column']} {filter['comparison_operator']} {filter['value']}")
+        filter_clause = " AND ".join(filter_clauses)
+        if len(filter_clause) > 0:
+            return f"WHERE {filter_clause}", f"AND {filter_clause}"
+        return "", ""
+
     async def search(
         self,
         query_text: str | None,
@@ -17,14 +28,7 @@ class PostgresSearcher:
         filters: list[dict] | None = None,
     ):
 
-        filter_clause = ""
-        filter_clause_where = ""
-        filter_clause_and = ""
-        if filters is not None and len(filters) > 0:
-            filter = filters[0]
-            filter_clause = f"{filter['column']} {filter['comparison_operator']} {filter['value']}"
-            filter_clause_where = f"WHERE {filter_clause}"
-            filter_clause_and = f"AND {filter_clause}"
+        filter_clause_where, filter_clause_and = self.build_filter_clause(filters)
 
         vector_query = f"""
             SELECT id, RANK () OVER (ORDER BY embedding <=> :embedding) AS rank
