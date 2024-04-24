@@ -11,7 +11,7 @@ const Layout = () => {
                     <Link to="/" className={styles.headerTitleContainer}>
                         <h3 className={styles.headerTitle}>RAG on database</h3>
                     </Link>
-                    <h4 className={styles.headerRightText}>Llama2 + PostgreSQL</h4>
+                    <h4 className={styles.headerRightText}>OpenAI + PostgreSQL</h4>
                 </div>
             </header>
 

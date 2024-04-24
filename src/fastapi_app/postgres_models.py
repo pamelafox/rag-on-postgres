@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, mapped_column
 
 
@@ -28,3 +29,16 @@ class Item(Base):
         else:
             del model_dict["embedding"]
         return model_dict
+
+    def to_str_for_rag(self):
+        return f"Name:{self.name} Description:{self.description} Price:{self.price} Brand:{self.brand} Type:{self.type}"
+
+
+# Define HNSW index to support vector similarity search through the vector_cosine_ops access method (cosine distance).
+index = Index(
+    "hnsw_index_for_cosine_distance_similarity_search",
+    Item.embedding,
+    postgresql_using="hnsw",
+    postgresql_with={"m": 16, "ef_construction": 64},
+    postgresql_ops={"embedding": "vector_cosine_ops"},
+)

@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { Checkbox, Panel, DefaultButton, TextField, SpinButton, Slider } from "@fluentui/react";
+import { Panel, DefaultButton, TextField, SpinButton, Slider } from "@fluentui/react";
 import { SparkleFilled } from "@fluentui/react-icons";
 import readNDJSONStream from "ndjson-readablestream";
 
@@ -26,12 +26,8 @@ const Chat = () => {
     const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
     const [promptTemplate, setPromptTemplate] = useState<string>("");
     const [temperature, setTemperature] = useState<number>(0.3);
-    const [minimumRerankerScore, setMinimumRerankerScore] = useState<number>(0);
-    const [minimumSearchScore, setMinimumSearchScore] = useState<number>(0);
     const [retrieveCount, setRetrieveCount] = useState<number>(3);
     const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>(RetrievalMode.Hybrid);
-    const [useSemanticRanker, setUseSemanticRanker] = useState<boolean>(true);
-    const [shouldStream, setShouldStream] = useState<boolean>(true);
 
     const lastQuestionRef = useRef<string>("");
     const chatMessageStreamEnd = useRef<HTMLDivElement | null>(null);
@@ -46,50 +42,6 @@ const Chat = () => {
     const [selectedAnswer, setSelectedAnswer] = useState<number>(0);
     const [answers, setAnswers] = useState<[user: string, response: ChatAppResponse][]>([]);
     const [streamedAnswers, setStreamedAnswers] = useState<[user: string, response: ChatAppResponse][]>([]);
-
-    const handleAsyncRequest = async (question: string, answers: [string, ChatAppResponse][], setAnswers: Function, responseBody: ReadableStream<any>) => {
-        let answer: string = "";
-        let askResponse: ChatAppResponse = {} as ChatAppResponse;
-
-        const updateState = (newContent: string) => {
-            return new Promise(resolve => {
-                setTimeout(() => {
-                    answer += newContent;
-                    const latestResponse: ChatAppResponse = {
-                        ...askResponse,
-                        choices: [{ ...askResponse.choices[0], message: { content: answer, role: askResponse.choices[0].message.role } }]
-                    };
-                    setStreamedAnswers([...answers, [question, latestResponse]]);
-                    resolve(null);
-                }, 33);
-            });
-        };
-        try {
-            setIsStreaming(true);
-            for await (const event of readNDJSONStream(responseBody)) {
-                if (event["choices"] && event["choices"][0]["context"] && event["choices"][0]["context"]["data_points"]) {
-                    event["choices"][0]["message"] = event["choices"][0]["delta"];
-                    askResponse = event as ChatAppResponse;
-                } else if (event["choices"] && event["choices"][0]["delta"]["content"]) {
-                    setIsLoading(false);
-                    await updateState(event["choices"][0]["delta"]["content"]);
-                } else if (event["choices"] && event["choices"][0]["context"]) {
-                    // Update context with new keys from latest event
-                    askResponse.choices[0].context = { ...askResponse.choices[0].context, ...event["choices"][0]["context"] };
-                } else if (event["error"]) {
-                    throw Error(event["error"]);
-                }
-            }
-        } finally {
-            setIsStreaming(false);
-        }
-        const fullResponse: ChatAppResponse = {
-            ...askResponse,
-            choices: [{ ...askResponse.choices[0], message: { content: answer, role: askResponse.choices[0].message.role } }]
-        };
-        return fullResponse;
-    };
-
 
     const makeApiRequest = async (question: string) => {
         lastQuestionRef.current = question;
@@ -107,36 +59,24 @@ const Chat = () => {
 
             const request: ChatAppRequest = {
                 messages: [...messages, { content: question, role: "user" }],
-                stream: shouldStream,
                 context: {
                     overrides: {
-                        prompt_template: promptTemplate.length === 0 ? undefined : promptTemplate,
                         top: retrieveCount,
-                        temperature: temperature,
-                        minimum_reranker_score: minimumRerankerScore,
-                        minimum_search_score: minimumSearchScore,
                         retrieval_mode: retrievalMode,
-                        semantic_ranker: useSemanticRanker
+                        prompt_template: promptTemplate.length === 0 ? undefined : promptTemplate,
+                        temperature: temperature
                     }
                 },
-                // ChatAppProtocol: Client must pass on any session state received from the server
-                session_state: answers.length ? answers[answers.length - 1][1].choices[0].session_state : null
             };
-
             const response = await chatApi(request);
             if (!response.body) {
                 throw Error("No response body");
             }
-            if (shouldStream) {
-                const parsedResponse: ChatAppResponse = await handleAsyncRequest(question, answers, setAnswers, response.body);
-                setAnswers([...answers, [question, parsedResponse]]);
-            } else {
-                const parsedResponse: ChatAppResponseOrError = await response.json();
-                if (response.status > 299 || !response.ok) {
-                    throw Error(parsedResponse.error || "Unknown error");
-                }
-                setAnswers([...answers, [question, parsedResponse as ChatAppResponse]]);
+            const parsedResponse: ChatAppResponseOrError = await response.json();
+            if (response.status > 299 || !response.ok) {
+                throw Error(parsedResponse.error || "Unknown error");
             }
+            setAnswers([...answers, [question, parsedResponse as ChatAppResponse]]);
         } catch (e) {
             setError(e);
         } finally {
@@ -170,25 +110,10 @@ const Chat = () => {
         setTemperature(newValue);
     };
 
-    const onMinimumSearchScoreChange = (_ev?: React.SyntheticEvent<HTMLElement, Event>, newValue?: string) => {
-        setMinimumSearchScore(parseFloat(newValue || "0"));
-    };
-
-    const onMinimumRerankerScoreChange = (_ev?: React.SyntheticEvent<HTMLElement, Event>, newValue?: string) => {
-        setMinimumRerankerScore(parseFloat(newValue || "0"));
-    };
-
     const onRetrieveCountChange = (_ev?: React.SyntheticEvent<HTMLElement, Event>, newValue?: string) => {
         setRetrieveCount(parseInt(newValue || "3"));
     };
 
-    const onUseSemanticRankerChange = (_ev?: React.FormEvent<HTMLElement | HTMLInputElement>, checked?: boolean) => {
-        setUseSemanticRanker(!!checked);
-    };
-
-    const onShouldStreamChange = (_ev?: React.FormEvent<HTMLElement | HTMLInputElement>, checked?: boolean) => {
-        setShouldStream(!!checked);
-    };
 
     const onExampleClicked = (example: string) => {
         makeApiRequest(example);
@@ -318,6 +243,20 @@ const Chat = () => {
                     onRenderFooterContent={() => <DefaultButton onClick={() => setIsConfigPanelOpen(false)}>Close</DefaultButton>}
                     isFooterAtBottom={true}
                 >
+                    <SpinButton
+                        className={styles.chatSettingsSeparator}
+                        label="Retrieve this many search results:"
+                        min={1}
+                        max={50}
+                        defaultValue={retrieveCount.toString()}
+                        onChange={onRetrieveCountChange}
+                    />
+
+                    <VectorSettings
+                        updateRetrievalMode={(retrievalMode: RetrievalMode) => setRetrievalMode(retrievalMode)}
+                    />
+
+
                     <TextField
                         className={styles.chatSettingsSeparator}
                         defaultValue={promptTemplate}
@@ -339,51 +278,6 @@ const Chat = () => {
                         snapToStep
                     />
 
-                    <SpinButton
-                        className={styles.chatSettingsSeparator}
-                        label="Minimum search score"
-                        min={0}
-                        step={0.01}
-                        defaultValue={minimumSearchScore.toString()}
-                        onChange={onMinimumSearchScoreChange}
-                    />
-
-                    <SpinButton
-                        className={styles.chatSettingsSeparator}
-                        label="Minimum reranker score"
-                        min={1}
-                        max={4}
-                        step={0.1}
-                        defaultValue={minimumRerankerScore.toString()}
-                        onChange={onMinimumRerankerScoreChange}
-                    />
-
-                    <SpinButton
-                        className={styles.chatSettingsSeparator}
-                        label="Retrieve this many search results:"
-                        min={1}
-                        max={50}
-                        defaultValue={retrieveCount.toString()}
-                        onChange={onRetrieveCountChange}
-                    />
-
-                        <Checkbox
-                            className={styles.chatSettingsSeparator}
-                            checked={useSemanticRanker}
-                            label="Use semantic ranker for retrieval"
-                            onChange={onUseSemanticRankerChange}
-                        />
-
-                    <VectorSettings
-                            updateRetrievalMode={(retrievalMode: RetrievalMode) => setRetrievalMode(retrievalMode)}
-                        />
-
-                    <Checkbox
-                        className={styles.chatSettingsSeparator}
-                        checked={shouldStream}
-                        label="Stream chat completion responses"
-                        onChange={onShouldStreamChange}
-                    />
                 </Panel>
             </div>
         </div>

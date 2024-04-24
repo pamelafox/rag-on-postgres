@@ -7,7 +7,20 @@
             "driver": "PostgreSQL",
             "name": "local",
             "database": "postgres",
-            "username": "admin"
+            "username": "admin",
+            "password": "LocalPasswordOnly"
+        },
+        {
+            "name": "Azure database",
+            "driver": "PostgreSQL",
+            "server": "<HOSTNAME>.postgres.database.azure.com",
+            "port": 5432,
+            "database": "postgres",
+            "username": "<USERNAME>",
+            "askForPassword": true,
+            "pgOptions": {
+                "ssl": true
+            }
         }
     ]
 }

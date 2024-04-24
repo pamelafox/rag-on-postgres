@@ -1,56 +1,27 @@
-import json
-import dataclasses
-import os
-
 import fastapi
-from pydantic import BaseModel
 
+from .api_models import ChatRequest
 from .globals import global_storage
 from .postgres_searcher import PostgresSearcher
-from .rag import RAGChat
+from .rag_simple import SimpleRAGChat
 
 router = fastapi.APIRouter()
 
 
-
-class Message(BaseModel):
-    content: str
-    role: str = "user"
-
-
-class ChatRequest(BaseModel):
-    messages: list[Message]
-    stream: bool = True
-
-
-
-class JSONEncoder(json.JSONEncoder):
-    def default(self, o):
-        if dataclasses.is_dataclass(o):
-            return dataclasses.asdict(o)
-        return super().default(o)
-
-
 @router.post("/chat")
 async def chat_handler(chat_request: ChatRequest):
-    ragchat = RAGChat(
+    ragchat = SimpleRAGChat(
         searcher=PostgresSearcher(global_storage.async_session_maker),
-        openai_client=global_storage.openai_client,
-        gpt_model=global_storage.openai_gpt_model,
-        gpt_deployment=global_storage.openai_gpt_deployment,
+        openai_chat_client=global_storage.openai_chat_client,
+        chat_model=global_storage.openai_chat_model,
+        chat_deployment=global_storage.openai_chat_deployment,
+        openai_embed_client=global_storage.openai_embed_client,
         embed_deployment=global_storage.openai_embed_deployment,
         embed_model=global_storage.openai_embed_model,
         embed_dimensions=global_storage.openai_embed_dimensions,
     )
+
     messages = [message.model_dump() for message in chat_request.messages]
-    context={"overrides": {"retrieval_mode": "hybrid"}}
-    if chat_request.stream:
-        async def response_stream():
-            chat_coroutine = ragchat.run(messages, stream=True, context=context)
-            # todo try except
-            async for event in await chat_coroutine:
-                yield json.dumps(event, ensure_ascii=False, cls=JSONEncoder) + "\n"
-        return fastapi.responses.StreamingResponse(response_stream())
-    else:
-        response = await ragchat.run(messages, stream=False, context=context)
-        return response
+    overrides = chat_request.context.get("overrides", {})
+    response = await ragchat.run(messages, overrides=overrides)
+    return response

@@ -1,57 +1,84 @@
+from pgvector.utils import to_db
+from sqlalchemy import Float, Integer, select, text
 
-import asyncio
-import logging
-
-from sqlalchemy import select
-
-from .models import Item
+from .postgres_models import Item
 
 
 class PostgresSearcher:
 
     def __init__(self, async_session_maker):
         self.async_session_maker = async_session_maker
-        
-    async def vector_search(self, session, query_vector: list[float] | None):
-        if query_vector is None or len(query_vector) == 0:
-            return []
-        # for embeddings: recommendation is to concatenate all the text-y columns into a single string with colons (up to token limit)
-        #  compute an embedding and store in single column
-        # keep the function in source control that computed the embeddings
-        # Name: Red Shoe
-        # Description: A shoe that is red
-        # Category: Shoes
-        # Or we also show how to query on multiple embeddings and combine results
-        # *Dont* include columns like price in the embedding
-        return await session.scalars(select(Item).order_by(Item.embedding.cosine_distance(query_vector)).limit(5))
 
+    async def search(
+        self,
+        query_text: str | None,
+        query_vector: list[float] | list,
+        query_top: int = 5,
+        filters: list[dict] | None = None,
+    ):
 
-    async def keyword_search(self, session, query_text: str | None):
-        # todo index for keyword search
-        if query_text is None:
-            return []
-        # TODO: use tsvector/tsrank - full text search
-        # you may want to search across multiple columns
-        return await session.scalars(select(Item).where(Item.name.ilike(f"%{query_text}%")).limit(5))
+        filter_clause = ""
+        filter_clause_where = ""
+        filter_clause_and = ""
+        if filters is not None and len(filters) > 0:
+            filter = filters[0]
+            filter_clause = f"{filter['column']} {filter['comparison_operator']} {filter['value']}"
+            filter_clause_where = f"WHERE {filter_clause}"
+            filter_clause_and = f"AND {filter_clause}"
 
-    async def hybrid_search(self, query_text: str | None, query_vector: list[float] | None, query_top: int = 5):
-        logging.info(f"Hybrid search: {query_text=} {query_vector=}")
+        vector_query = f"""
+            SELECT id, RANK () OVER (ORDER BY embedding <=> :embedding) AS rank
+                FROM items
+                {filter_clause_where}
+                ORDER BY embedding <=> :embedding
+                LIMIT 20
+            """
+
+        fulltext_query = f"""
+            SELECT id, RANK () OVER (ORDER BY ts_rank_cd(to_tsvector('english', description), query) DESC)
+                FROM items, plainto_tsquery('english', :query) query
+                WHERE to_tsvector('english', description) @@ query {filter_clause_and}
+                ORDER BY ts_rank_cd(to_tsvector('english', description), query) DESC
+                LIMIT 20
+            """
+
+        hybrid_query = f"""
+        WITH vector_search AS (
+            {vector_query}
+        ),
+        fulltext_search AS (
+            {fulltext_query}
+        )
+        SELECT
+            COALESCE(vector_search.id, fulltext_search.id) AS id,
+            COALESCE(1.0 / (:k + vector_search.rank), 0.0) +
+            COALESCE(1.0 / (:k + fulltext_search.rank), 0.0) AS score
+        FROM vector_search
+        FULL OUTER JOIN fulltext_search ON vector_search.id = fulltext_search.id
+        ORDER BY score DESC
+        LIMIT 20
+        """
+
+        if query_text is not None and len(query_vector) > 0:
+            sql = text(hybrid_query).columns(id=Integer, score=Float)
+        elif len(query_vector) > 0:
+            sql = text(vector_query).columns(id=Integer, rank=Integer)
+        elif query_text is not None:
+            sql = text(fulltext_query).columns(id=Integer, rank=Integer)
+        else:
+            raise ValueError("Both query text and query vector are empty")
+
         async with self.async_session_maker() as session:
-            results = await asyncio.gather(
-                self.vector_search(session, query_vector),
-                self.keyword_search(session, query_text),
-            )
-            logging.info(f"Hybrid search results: {results=}")
-            # de-duplicate results
-            matching_items = []
-            for items in results:
-                for item in items:
-                    if item not in matching_items:
-                        matching_items.append(item)
-            # todo: rerank
-            # either/and
-            # do RRF (Rank Reciprocal Fusion)
-            # or model
+            results = (
+                await session.execute(
+                    sql,
+                    {"embedding": to_db(query_vector), "query": query_text, "k": 60},
+                )
+            ).fetchall()
 
-            return matching_items[0 : query_top]
-
+            # Convert results to Item models
+            items = []
+            for id, _ in results[:query_top]:
+                item = await session.execute(select(Item).where(Item.id == id))
+                items.append(item.scalar())
+            return items
