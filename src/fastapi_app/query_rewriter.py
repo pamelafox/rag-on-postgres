@@ -34,6 +34,20 @@ def build_search_function() -> list[ChatCompletionToolParam]:
                                 },
                             },
                         },
+                        "brand_filter": {
+                            "type": "object",
+                            "description": "Filter search results based on brand of the product",
+                            "properties": {
+                                "comparison_operator": {
+                                    "type": "string",
+                                    "description": "Operator to compare the column value, either '==' or '!='",
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "description": "Value to compare against, e.g. AirStrider",
+                                },
+                            },
+                        },
                     },
                     "required": ["search_query"],
                 },
@@ -61,6 +75,15 @@ def extract_search_arguments(chat_completion: ChatCompletion):
                             "column": "price",
                             "comparison_operator": price_filter["comparison_operator"],
                             "value": price_filter["value"],
+                        }
+                    )
+                if "brand_filter" in arg:
+                    brand_filter = arg["brand_filter"]
+                    filters.append(
+                        {
+                            "column": "brand",
+                            "comparison_operator": brand_filter["comparison_operator"],
+                            "value": brand_filter["value"],
                         }
                     )
     elif query_text := response_message.content:

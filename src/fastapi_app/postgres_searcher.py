@@ -10,6 +10,8 @@ class PostgresSearcher:
         self.async_session_maker = async_session_maker
 
     def build_filter_clause(self, filters) -> tuple[str, str]:
+        if filters is None:
+            return "", ""
         filter_clauses = []
         for filter in filters:
             if isinstance(filter["value"], str):

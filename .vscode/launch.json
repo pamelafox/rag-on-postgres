@@ -20,15 +20,7 @@
         "module": "uvicorn",
         "args": ["fastapi_app:app", "--reload"],
         "envFile": "${input:dotEnvFilePath}",
-        "justMyCode": true,
-        //"preLaunchTask": "python3 -m pip install -e src"
-    }
-  ],
-  "inputs": [
-    {
-      "id": "dotEnvFilePath",
-      "type": "command",
-      "command": "azure-dev.commands.getDotEnvFilePath"
+        "justMyCode": true
     }
   ],
   "compounds": [
@@ -36,6 +28,13 @@
       "name": "Frontend & Backend",
       "configurations": ["Frontend", "Backend"],
       "stopAll": true
+    }
+  ],
+  "inputs": [
+    {
+      "id": "dotEnvFilePath",
+      "type": "command",
+      "command": "azure-dev.commands.getDotEnvFilePath"
     }
   ]
 }
