@@ -1,11 +1,9 @@
-import json
+import pathlib
 from collections.abc import AsyncGenerator, Coroutine
 from dataclasses import dataclass
 from typing import (
     Any,
-    Literal,
     TypedDict,
-    overload,
 )
 
 from llm_messages_token_helper import build_messages, get_token_limit
@@ -13,42 +11,10 @@ from openai import AsyncOpenAI, AsyncStream
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
-    ChatCompletionToolParam,
 )
 
 from .postgres_searcher import PostgresSearcher
-
-
-def nonewlines(s: str) -> str:
-    return s.replace("\n", " ").replace("\r", " ")
-
-
-@dataclass
-class Item:
-    id: str | None
-    name: str | None
-    embedding: list[float] | None
-    description: str | None
-
-    def serialize_for_results(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "embedding": Item.trim_embedding(self.embedding),
-            "description": self.description,
-        }
-
-    @classmethod
-    def trim_embedding(cls, embedding: list[float] | None) -> str | None:
-        """Returns a trimmed list of floats from the vector embedding."""
-        if embedding:
-            if len(embedding) > 2:
-                # Format the embedding list to show the first 2 items followed by the count of the remaining items."""
-                return f"[{embedding[0]}, {embedding[1]} ...+{len(embedding) - 2} more]"
-            else:
-                return str(embedding)
-
-        return None
+from .query_rewriter import build_search_function, extract_search_arguments
 
 
 @dataclass
@@ -59,36 +25,6 @@ class ThoughtStep:
 
 
 class RAGChat:
-    # Chat roles
-    SYSTEM = "system"
-    USER = "user"
-    ASSISTANT = "assistant"
-
-    query_prompt_few_shots = [
-        {"role": USER, "content": "How did crypto do last year?"},
-        {"role": ASSISTANT, "content": "Summarize Cryptocurrency Market Dynamics from last year"},
-        {"role": USER, "content": "What are my health plans?"},
-        {"role": ASSISTANT, "content": "Show available health plans"},
-    ]
-    NO_RESPONSE = "0"
-
-    query_prompt_template = """Below is a history of the conversation so far, and a new question asked by the user that needs to be answered by searching in a knowledge base.
-    You have access to Azure AI Search index with 100's of documents.
-    Generate a search query based on the conversation and the new question.
-    Do not include cited source filenames and document names e.g info.txt or doc.pdf in the search query terms.
-    Do not include any text inside [] or <<>> in the search query terms.
-    Do not include any special characters like '+'.
-    If the question is not in English, translate the question to English before generating the search query.
-    If you cannot generate a search query, return just the number 0.
-    """
-
-    @property
-    def system_message_chat_conversation(self):
-        return """Assistant helps customers with questions about products. Respond as if you are a salesperson helping a customer in a store. Do NOT respond with tables.
-        Answer ONLY with the product details listed in the products. If there isn't enough information below, say you don't know. Do not generate answers that don't use the sources below.
-        Each product has an ID in brackets followed by colon and the product details, always include the product ID for each product you use in the response. Use square brackets to reference the source, for example [52]. Don't combine citations, list each product separately, for example [27][51].
-        {injected_prompt}
-        """
 
     def __init__(
         self,
@@ -109,9 +45,9 @@ class RAGChat:
         self.embed_model = embed_model
         self.embed_dimensions = embed_dimensions
         self.gpt_token_limit = get_token_limit(gpt_model)
-
-    def get_sources_content(self, items: list[Item]) -> list[str]:
-        return [f"[{(item.id)}]:{item.to_str_for_rag()}\n\n" for item in items]
+        current_dir = pathlib.Path(__file__).parent
+        self.query_prompt_template = open(current_dir / "prompts/query.txt").read()
+        self.answer_prompt_template = open(current_dir / "prompts/answer.txt").read()
 
     async def compute_text_embedding(self, q: str):
         SUPPORTED_DIMENSIONS_MODEL = {
@@ -126,6 +62,7 @@ class RAGChat:
         dimensions_args: ExtraArgs = (
             {"dimensions": self.embedding_dimensions} if SUPPORTED_DIMENSIONS_MODEL[self.embed_model] else {}
         )
+
         embedding = await self.openai_client.embeddings.create(
             # Azure OpenAI takes the deployment name as the model name
             model=self.embed_deployment if self.embed_deployment else self.embed_model,
@@ -134,81 +71,34 @@ class RAGChat:
         )
         return embedding.data[0].embedding
 
-    def get_system_prompt(self, override_prompt: str | None) -> str:
-        if override_prompt is None:
-            return self.system_message_chat_conversation.format(injected_prompt="")
-        elif override_prompt.startswith(">>>"):
-            return self.system_message_chat_conversation.format(injected_prompt=override_prompt[3:] + "\n")
-        else:
-            return override_prompt
-
-    def get_search_query(self, chat_completion: ChatCompletion, user_query: str):
-        response_message = chat_completion.choices[0].message
-        search_query = self.NO_RESPONSE
-        filters = []
-        if response_message.tool_calls:
-            for tool in response_message.tool_calls:
-                if tool.type != "function":
-                    continue
-                function = tool.function
-                if function.name == "search_database":
-                    arg = json.loads(function.arguments)
-                    search_query = arg.get("search_query", self.NO_RESPONSE)
-                    if "price_filter" in arg:
-                        price_filter = arg["price_filter"]
-                        filters.append(
-                            {
-                                "column": "price",
-                                "comparison_operator": price_filter["comparison_operator"],
-                                "value": price_filter["value"],
-                            }
-                        )
-        elif query_text := response_message.content:
-            search_query = query_text.strip()
-        return search_query, filters
-
     async def run(
-        self, messages: list[dict], stream: bool = False, session_state: Any = None, context: dict[str, Any] = {}
+        self, messages: list[dict], stream: bool = False, context: dict[str, Any] = {}
     ) -> dict[str, Any] | AsyncGenerator[dict[str, Any], None]:
         overrides = context.get("overrides", {})
 
         if stream is False:
-            return await self.run_without_streaming(messages, overrides, session_state)
+            return await self.run_without_streaming(messages, overrides)
         else:
-            return self.run_with_streaming(messages, overrides, session_state)
+            return self.run_with_streaming(messages, overrides)
 
-    async def run_without_streaming(
-        self,
-        history: list[dict[str, str]],
-        overrides: dict[str, Any],
-        auth_claims: dict[str, Any],
-        session_state: Any = None,
-    ) -> dict[str, Any]:
-        extra_info, chat_coroutine = await self.run_until_final_call(
-            history, overrides, auth_claims, should_stream=False
-        )
+    async def run_without_streaming(self, history: list[dict[str, str]], overrides: dict[str, Any]) -> dict[str, Any]:
+        extra_info, chat_coroutine = await self.run_until_final_call(history, overrides, should_stream=False)
         chat_completion_response: ChatCompletion = await chat_coroutine
         chat_resp = chat_completion_response.model_dump()  # Convert to dict to make it JSON serializable
         chat_resp["choices"][0]["context"] = extra_info
-        chat_resp["choices"][0]["session_state"] = session_state
         return chat_resp
 
     async def run_with_streaming(
         self,
         history: list[dict[str, str]],
         overrides: dict[str, Any],
-        auth_claims: dict[str, Any],
-        session_state: Any = None,
     ) -> AsyncGenerator[dict, None]:
-        extra_info, chat_coroutine = await self.run_until_final_call(
-            history, overrides, auth_claims, should_stream=True
-        )
+        extra_info, chat_coroutine = await self.run_until_final_call(history, overrides, should_stream=True)
         yield {
             "choices": [
                 {
-                    "delta": {"role": self.ASSISTANT},
+                    "delta": {"role": "assistant"},
                     "context": extra_info,
-                    "session_state": session_state,
                     "finish_reason": None,
                     "index": 0,
                 }
@@ -217,89 +107,29 @@ class RAGChat:
         }
 
         async for event_chunk in await chat_coroutine:
-            # "2023-07-01-preview" API version has a bug where first response has empty choices
             event = event_chunk.model_dump()  # Convert pydantic model to dict
             if event["choices"]:
                 yield event
 
-    @overload
     async def run_until_final_call(
         self,
         history: list[dict[str, str]],
         overrides: dict[str, Any],
-        auth_claims: dict[str, Any],
-        should_stream: Literal[False],
-    ) -> tuple[dict[str, Any], Coroutine[Any, Any, ChatCompletion]]: ...
-
-    @overload
-    async def run_until_final_call(
-        self,
-        history: list[dict[str, str]],
-        overrides: dict[str, Any],
-        auth_claims: dict[str, Any],
-        should_stream: Literal[True],
-    ) -> tuple[dict[str, Any], Coroutine[Any, Any, AsyncStream[ChatCompletionChunk]]]: ...
-
-    async def run_until_final_call(
-        self,
-        history: list[dict[str, str]],
-        overrides: dict[str, Any],
-        auth_claims: dict[str, Any],
         should_stream: bool = False,
     ) -> tuple[dict[str, Any], Coroutine[Any, Any, ChatCompletion | AsyncStream[ChatCompletionChunk]]]:
         has_text = overrides.get("retrieval_mode") in ["text", "hybrid", None]
         has_vector = overrides.get("retrieval_mode") in ["vectors", "hybrid", None]
         top = overrides.get("top", 3)
-        minimum_search_score = overrides.get("minimum_search_score", 0.0)
-        minimum_reranker_score = overrides.get("minimum_reranker_score", 0.0)
-
-        use_semantic_ranker = True if overrides.get("semantic_ranker") and has_text else False
 
         original_user_query = history[-1]["content"]
-        user_query_request = "Generate search query for: " + original_user_query
 
-        tools: list[ChatCompletionToolParam] = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "search_database",
-                    "description": "Search PostgreSQL database for relevant products based on the user query",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "search_query": {
-                                "type": "string",
-                                "description": "Query string to use for full text search, e.g. 'red shoes'",
-                            },
-                            "price_filter": {
-                                "type": "object",
-                                "description": "Filter search results based on price of the product",
-                                "properties": {
-                                    "comparison_operator": {
-                                        "type": "string",
-                                        "description": "Operator to compare the column value, either '>', '<', '>=', '<=', '=='",
-                                    },
-                                    "value": {
-                                        "type": "number",
-                                        "description": "Value to compare against, e.g. 30",
-                                    },
-                                },
-                            },
-                        },
-                        "required": ["search_query"],
-                    },
-                },
-            }
-        ]
-
-        # STEP 1: Generate an optimized keyword search query based on the chat history and the last question
+        # Generate an optimized keyword search query based on the chat history and the last question
         query_messages = build_messages(
             model=self.gpt_model,
             system_prompt=self.query_prompt_template,
-            new_user_message=user_query_request,
+            new_user_message=original_user_query,
             past_messages=history,
-            few_shots=self.query_prompt_few_shots,
-            max_tokens=self.gpt_token_limit - len(user_query_request),
+            max_tokens=self.gpt_token_limit - len(original_user_query),
         )
 
         chat_completion: ChatCompletion = await self.openai_client.chat.completions.create(
@@ -307,43 +137,32 @@ class RAGChat:
             # Azure OpenAI takes the deployment name as the model name
             model=self.gpt_deployment if self.gpt_deployment else self.gpt_model,
             temperature=0.0,  # Minimize creativity for search query generation
-            max_tokens=1000,  # Setting too low risks malformed JSON, setting too high may affect performance
+            max_tokens=500,  # Setting too low risks malformed JSON, setting too high may affect performance
             n=1,
-            tools=tools,
+            tools=build_search_function(),
             tool_choice="auto",
         )
 
-        query_text, filters = self.get_search_query(chat_completion, original_user_query)
+        query_text, filters = extract_search_arguments(chat_completion)
 
-        # STEP 2: Retrieve relevant documents from the search index with the GPT optimized query
-
-        # If retrieval mode includes vectors, compute an embedding for the query
+        # Retrieve relevant items from the database with the GPT optimized query
         vector: list[float] = []
         if has_vector:
             vector = await self.compute_text_embedding(original_user_query)
-
-        # Only keep the text query if the retrieval mode uses text, otherwise drop it
         if not has_text:
             query_text = None
 
         results = await self.searcher.search(query_text, vector, top, filters)
 
-        sources_content = self.get_sources_content(results)
+        sources_content = [f"[{(item.id)}]:{item.to_str_for_rag()}\n\n" for item in results]
         content = "\n".join(sources_content)
 
-        # STEP 3: Generate a contextual and content specific answer using the search results and chat history
-
-        # Allow client to replace the entire prompt, or to inject into the exiting prompt using >>>
-        system_message = self.get_system_prompt(
-            overrides.get("prompt_template"),
-        )
-
+        # Generate a contextual and content specific answer using the search results and chat history
         response_token_limit = 1024
         messages_token_limit = self.gpt_token_limit - response_token_limit
         messages = build_messages(
             model=self.gpt_model,
-            system_prompt=system_message,
-            # Model does not handle lengthy system messages well. Moving sources to latest user conversation to solve follow up questions prompt.
+            system_prompt=overrides.get("prompt_template") or self.answer_prompt_template,
             new_user_message=original_user_query + "\n\nSources:\n" + content,
             past_messages=history,
             max_tokens=messages_token_limit,
@@ -355,7 +174,7 @@ class RAGChat:
             "data_points": data_points,
             "thoughts": [
                 ThoughtStep(
-                    "Prompt to generate search query",
+                    "Prompt to generate search arguments",
                     [str(message) for message in query_messages],
                     (
                         {"model": self.gpt_model, "deployment": self.gpt_deployment}
@@ -364,10 +183,9 @@ class RAGChat:
                     ),
                 ),
                 ThoughtStep(
-                    "Search using generated search query",
+                    "Search using generated search arguments",
                     query_text,
                     {
-                        "use_semantic_ranker": use_semantic_ranker,
                         "top": top,
                         "has_vector": has_vector,
                     },

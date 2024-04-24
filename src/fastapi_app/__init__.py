@@ -51,7 +51,6 @@ async def lifespan(app: fastapi.FastAPI):
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         # Create all tables (and indexes) defined in this model in the database
         await conn.run_sync(Base.metadata.create_all)
-        register_vector(conn)
 
     async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 

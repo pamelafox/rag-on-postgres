@@ -1,6 +1,5 @@
-import json
 import dataclasses
-import os
+import json
 
 import fastapi
 from pydantic import BaseModel
@@ -12,7 +11,6 @@ from .rag import RAGChat
 router = fastapi.APIRouter()
 
 
-
 class Message(BaseModel):
     content: str
     role: str = "user"
@@ -21,7 +19,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[Message]
     stream: bool = True
-
+    context: dict = {}
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -43,13 +41,15 @@ async def chat_handler(chat_request: ChatRequest):
         embed_dimensions=global_storage.openai_embed_dimensions,
     )
     messages = [message.model_dump() for message in chat_request.messages]
-    context={"overrides": {"retrieval_mode": "hybrid"}}
+    context = chat_request.context
     if chat_request.stream:
+
         async def response_stream():
             chat_coroutine = ragchat.run(messages, stream=True, context=context)
             # todo try except
             async for event in await chat_coroutine:
                 yield json.dumps(event, ensure_ascii=False, cls=JSONEncoder) + "\n"
+
         return fastapi.responses.StreamingResponse(response_stream())
     else:
         response = await ragchat.run(messages, stream=False, context=context)
