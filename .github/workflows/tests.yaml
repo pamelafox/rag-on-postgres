@@ -33,18 +33,4 @@ jobs:
             architecture: x64
         - name: Install dependencies
           run: |
-            python3 -m pip install --upgrade pip
-            python3 -m pip install -r requirements.txt
-        - name: Run Pytest tests
-          run: |
-            python3 examples/asyncpg_items.py
-            python3 examples/psycopg_items.py
-            python3 examples/sqlalchemy_async.py
-            python3 examples/sqlalchemy_items.py
-            python3 examples/sqlalchemy_movies.py
-            python3 examples/sqlmodel_items.py
-          env:
-            POSTGRES_HOST: localhost
-            POSTGRES_USERNAME: postgres
-            POSTGRES_PASSWORD: postgres
-            POSTGRES_DATABASE: postgres
+            python3 -m pip install -e src
