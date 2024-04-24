@@ -1,7 +1,7 @@
 from pgvector.utils import to_db
 from sqlalchemy import Float, Integer, select, text
 
-from .models import Item
+from .postgres_models import Item
 
 
 class PostgresSearcher:
@@ -17,6 +17,7 @@ class PostgresSearcher:
         filters: list[dict] | None = None,
     ):
 
+        filter_clause = ""
         filter_clause_where = ""
         filter_clause_and = ""
         if filters is not None and len(filters) > 0:
@@ -33,7 +34,7 @@ class PostgresSearcher:
                 LIMIT 20
             """
 
-        keyword_query = f"""
+        fulltext_query = f"""
             SELECT id, RANK () OVER (ORDER BY ts_rank_cd(to_tsvector('english', description), query) DESC)
                 FROM items, plainto_tsquery('english', :query) query
                 WHERE to_tsvector('english', description) @@ query {filter_clause_and}
@@ -42,18 +43,18 @@ class PostgresSearcher:
             """
 
         hybrid_query = f"""
-        WITH semantic_search AS (
+        WITH vector_search AS (
             {vector_query}
         ),
-        keyword_search AS (
-            {keyword_query}
+        fulltext_search AS (
+            {fulltext_query}
         )
         SELECT
-            COALESCE(semantic_search.id, keyword_search.id) AS id,
-            COALESCE(1.0 / (:k + semantic_search.rank), 0.0) +
-            COALESCE(1.0 / (:k + keyword_search.rank), 0.0) AS score
-        FROM semantic_search
-        FULL OUTER JOIN keyword_search ON semantic_search.id = keyword_search.id
+            COALESCE(vector_search.id, fulltext_search.id) AS id,
+            COALESCE(1.0 / (:k + vector_search.rank), 0.0) +
+            COALESCE(1.0 / (:k + fulltext_search.rank), 0.0) AS score
+        FROM vector_search
+        FULL OUTER JOIN fulltext_search ON vector_search.id = fulltext_search.id
         ORDER BY score DESC
         LIMIT 20
         """
@@ -63,7 +64,7 @@ class PostgresSearcher:
         elif len(query_vector) > 0:
             sql = text(vector_query).columns(id=Integer, rank=Integer)
         elif query_text is not None:
-            sql = text(keyword_query).columns(id=Integer, rank=Integer)
+            sql = text(fulltext_query).columns(id=Integer, rank=Integer)
         else:
             raise ValueError("Both query text and query vector are empty")
 

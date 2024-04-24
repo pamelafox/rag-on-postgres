@@ -3,8 +3,8 @@ import { Example } from "./Example";
 import styles from "./Example.module.css";
 
 const DEFAULT_EXAMPLES: string[] = [
-    "Best climbing shoe?",
-    "Shoes cheaper than $30?",
+    "Best shoe for hiking?",
+    "Climbing gear cheaper than $30?",
     "Waterproof camping gear?",
 ];
 

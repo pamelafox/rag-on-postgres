@@ -12,12 +12,11 @@ import sqlalchemy.exc
 from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
 from environs import Env
-from pgvector.asyncpg import register_vector
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from .globals import global_storage
-from .models import Base, Item
+from .postgres_models import Base, Item
 
 
 @contextlib.asynccontextmanager
@@ -81,29 +80,42 @@ async def lifespan(app: fastapi.FastAPI):
     global_storage.engine = engine
     global_storage.async_session_maker = async_session_maker
 
-    OPENAI_API_HOST = os.getenv("OPENAI_API_HOST")
-    if OPENAI_API_HOST == "azure":
+    OPENAI_CHAT_HOST = os.getenv("OPENAI_CHAT_HOST")
+    if OPENAI_CHAT_HOST == "azure":
         token_provider = azure.identity.get_bearer_token_provider(
             azure.identity.DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
         )
-        global_storage.openai_client = openai.AsyncAzureOpenAI(
+        global_storage.openai_chat_client = openai.AsyncAzureOpenAI(
             api_version=os.getenv("AZURE_OPENAI_VERSION"),
             azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
             azure_ad_token_provider=token_provider,
+            azure_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),
         )
-        global_storage.openai_gpt_model = os.getenv("AZURE_OPENAI_GPT_MODEL")
-        global_storage.openai_gpt_deployment = os.getenv("AZURE_OPENAI_GPT_DEPLOYMENT")
-        global_storage.openai_embed_model = os.getenv("AZURE_OPENAI_EMBED_MODEL")
-        global_storage.openai_embed_deployment = os.getenv("AZURE_OPENAI_EMBED_DEPLOYMENT")
-    elif OPENAI_API_HOST == "ollama":
-        global_storage.openai_client = openai.AsyncOpenAI(
+        global_storage.openai_chat_model = os.getenv("AZURE_OPENAI_CHAT_MODEL")
+    elif OPENAI_CHAT_HOST == "ollama":
+        global_storage.openai_chat_client = openai.AsyncOpenAI(
             base_url=os.getenv("OLLAMA_ENDPOINT"),
             api_key="nokeyneeded",
         )
-        global_storage.openai_gpt_model = os.getenv("OLLAMA_GPT_MODEL")
+        global_storage.openai_chat_model = os.getenv("OLLAMA_CHAT_MODEL")
     else:
-        global_storage.openai_client = openai.AsyncOpenAI(api_key=os.getenv("OPENAICOM_KEY"))
-        global_storage.openai_gpt_model = os.getenv("OPENAICOM_GPT_MODEL")
+        global_storage.openai_chat_client = openai.AsyncOpenAI(api_key=os.getenv("OPENAICOM_KEY"))
+        global_storage.openai_chat_model = os.getenv("OPENAICOM_CHAT_MODEL")
+
+    OPENAI_EMBED_HOST = os.getenv("OPENAI_EMBED_HOST")
+    if OPENAI_EMBED_HOST == "azure":
+        token_provider = azure.identity.get_bearer_token_provider(
+            azure.identity.DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
+        )
+        global_storage.openai_embed_client = openai.AsyncAzureOpenAI(
+            api_version=os.getenv("AZURE_OPENAI_VERSION"),
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            azure_ad_token_provider=token_provider,
+            azure_deployment=os.getenv("AZURE_OPENAI_EMBED_DEPLOYMENT"),
+        )
+        global_storage.openai_embed_model = os.getenv("AZURE_OPENAI_EMBED_MODEL")
+    else:
+        global_storage.openai_embed_client = openai.AsyncOpenAI(api_key=os.getenv("OPENAICOM_KEY"))
         global_storage.openai_embed_model = os.getenv("OPENAICOM_EMBED_MODEL")
 
     yield
