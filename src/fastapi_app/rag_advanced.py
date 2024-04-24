@@ -79,7 +79,6 @@ class AdvancedRAGChat:
 
         # Retrieve relevant items from the database with the GPT optimized query
         vector: list[float] = []
-        query_text = None
         if vector_search:
             vector = await compute_text_embedding(
                 original_user_query,
@@ -88,8 +87,8 @@ class AdvancedRAGChat:
                 self.embed_deployment,
                 self.embed_dimensions,
             )
-        if text_search:
-            query_text = original_user_query
+        if not text_search:
+            query_text = None
 
         results = await self.searcher.search(query_text, vector, top, filters)
 
