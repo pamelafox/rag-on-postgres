@@ -29,26 +29,11 @@ npm run dev
 
 ## Setup permissions for Azure OpenAI endpoint
 
-If the permisions have not yet been setup, you can configure them using the following script:
+If the permisions have not yet been setup, you can configure them using the following script. It will display the commands and ask for confirmation before executing, verify that everything is correct before confirming.
+
+Specifically, verify that the Azure OpenAI resource you want to use is in the the resource group since permissions are applied at the resource group level.
 
 ```
-export AZURE_RESOURCE_GROUP=REPLACE_ME
-export AZURE_PRINCIPAL_ID=$(az ad signed-in-user show --output tsv --query "id")
-export AZURE_SUBSCRIPTION_ID=$(az account show --query "name" --out tsv)
-
-roles=(
-    "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd" # Cognitive Services OpenAI User
-    "2a2b9908-6ea1-4ae2-8e65-a410df84e7d1" # Storage Blob Data Reader
-    "ba92f5b4-2d11-453d-a403-e96b0029c9fe" # Storage Blob Data Contributor
-    "1407120a-92aa-4202-b7e9-c0e197c71c8f" # Search Index Data Reader
-    "8ebe5a00-799e-43f5-93ac-243d3dce84a7" # Search Index Data Contributor
-)
-
-for role in "${roles[@]}"; do
-    az role assignment create \
-        --role "$role" \
-        --assignee-object-id "$AZURE_PRINCIPAL_ID" \
-        --scope /subscriptions/"$AZURE_SUBSCRIPTION_ID"/resourceGroups/"$AZURE_RESOURCE_GROUP" \
-        --assignee-principal-type User
-done
+export AZURE_RESOURCE_GROUP=<REPLACE_ME>
+./scripts/roles.sh
 ```
