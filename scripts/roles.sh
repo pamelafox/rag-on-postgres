@@ -3,9 +3,11 @@ if [[ -z "${AZURE_RESOURCE_GROUP}" ]]; then
     exit 1
 fi
 
+# Input
 AZURE_PRINCIPAL_ID=${AZURE_PRINCIPAL_ID:-$(az ad signed-in-user show --output tsv --query "id")}
 AZURE_SUBSCRIPTION_ID=${AZURE_SUBSCRIPTION_ID:-$(az account show --query "name" --out tsv)}
 
+# For display only
 AZURE_PRINCIPAL_MAIL=$(az ad signed-in-user show --output tsv --query "mail")
 
 echo "Assigning roles to principal ${AZURE_PRINCIPAL_MAIL} in resource-group ${AZURE_RESOURCE_GROUP} in subscription ${AZURE_SUBSCRIPTION_ID}"

@@ -37,3 +37,12 @@ Specifically, verify that the Azure OpenAI resource you want to use is in the th
 export AZURE_RESOURCE_GROUP=<REPLACE_ME>
 ./scripts/roles.sh
 ```
+
+The script will figure out the `AZURE_PRINCIPAL_ID` and `AZURE_SUBSCRIPTION_ID` from the signed in user and currently selected subscription but you also specify them before running the script.
+
+```
+export AZURE_PRINCIPAL_ID=<REPLACE_ME>
+export AZURE_SUBSCRIPTION_ID=<REPLACE_ME>
+export AZURE_RESOURCE_GROUP=<REPLACE_ME>
+./scripts/roles.sh
+```
