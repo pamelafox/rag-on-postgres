@@ -46,3 +46,5 @@ export AZURE_SUBSCRIPTION_ID=<REPLACE_ME>
 export AZURE_RESOURCE_GROUP=<REPLACE_ME>
 ./scripts/roles.sh
 ```
+
+**Note**: There might be a delay before the permissions are effective, retry after a couple minutes.
