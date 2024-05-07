@@ -1,3 +1,17 @@
-name: postgres-pgvector
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: azure-rag-postgres-python
 metadata:
-  template: postgres-pgvector@0.0.2-beta
+    template: azure-rag-postgres-python@0.0.1
+services:
+    web:
+        project: src
+        language: py
+        module: web
+        host: containerapp
+hooks:
+    postprovision:
+      posix:
+        shell: sh
+        run: ./scripts/assign_role.sh
+        interactive: true
+        continueOnError: false

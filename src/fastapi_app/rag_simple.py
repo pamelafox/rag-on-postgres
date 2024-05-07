@@ -70,13 +70,12 @@ class SimpleRAGChat:
 
         # Generate a contextual and content specific answer using the search results and chat history
         response_token_limit = 1024
-        messages_token_limit = self.chat_token_limit - response_token_limit
         messages = build_messages(
             model=self.chat_model,
             system_prompt=overrides.get("prompt_template") or self.answer_prompt_template,
-            new_user_message=original_user_query + "\n\nSources:\n" + content,
+            new_user_content=original_user_query + "\n\nSources:\n" + content,
             past_messages=past_messages,
-            max_tokens=messages_token_limit,
+            max_tokens=self.chat_token_limit - response_token_limit,
             fallback_to_default=True,
         )
 

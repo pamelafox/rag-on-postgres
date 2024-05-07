@@ -55,12 +55,13 @@ class AdvancedRAGChat:
         past_messages = messages[:-1]
 
         # Generate an optimized keyword search query based on the chat history and the last question
+        query_response_token_limit = 500
         query_messages = build_messages(
             model=self.chat_model,
             system_prompt=self.query_prompt_template,
-            new_user_message=original_user_query,
+            new_user_content=original_user_query,
             past_messages=past_messages,
-            max_tokens=self.chat_token_limit - len(original_user_query),
+            max_tokens=self.chat_token_limit - query_response_token_limit,  # TODO: count functions
             fallback_to_default=True,
         )
 
@@ -69,7 +70,7 @@ class AdvancedRAGChat:
             # Azure OpenAI takes the deployment name as the model name
             model=self.chat_deployment if self.chat_deployment else self.chat_model,
             temperature=0.0,  # Minimize creativity for search query generation
-            max_tokens=500,  # Setting too low risks malformed JSON, setting too high may affect performance
+            max_tokens=query_response_token_limit,  # Setting too low risks malformed JSON, setting too high may affect performance
             n=1,
             tools=build_search_function(),
             tool_choice="auto",
@@ -97,13 +98,12 @@ class AdvancedRAGChat:
 
         # Generate a contextual and content specific answer using the search results and chat history
         response_token_limit = 1024
-        messages_token_limit = self.chat_token_limit - response_token_limit
         messages = build_messages(
             model=self.chat_model,
             system_prompt=overrides.get("prompt_template") or self.answer_prompt_template,
-            new_user_message=original_user_query + "\n\nSources:\n" + content,
+            new_user_content=original_user_query + "\n\nSources:\n" + content,
             past_messages=past_messages,
-            max_tokens=messages_token_limit,
+            max_tokens=self.chat_token_limit - response_token_limit,
             fallback_to_default=True,
         )
 

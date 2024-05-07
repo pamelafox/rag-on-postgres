@@ -4,6 +4,7 @@ version = "1.0.0"
 description = "Create a relecloud demo application with fastapi and postgres-flexible"
 dependencies = [
     "fastapi",
+    "gunicorn",
     "uvicorn[standard]",
     "python-dotenv",
     "environs",

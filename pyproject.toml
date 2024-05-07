@@ -6,7 +6,7 @@ ignore = ["D203"]
 show-source = true
 
 [tool.ruff.lint.isort]
-known-local-folder = ["examples"]
+known-first-party = ["fastapi_app"]
 
 [tool.black]
 line-length = 120
