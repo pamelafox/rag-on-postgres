@@ -58,7 +58,7 @@ class AdvancedRAGChat:
         query_messages = build_messages(
             model=self.chat_model,
             system_prompt=self.query_prompt_template,
-            new_user_message=original_user_query,
+            new_user_content=original_user_query,
             past_messages=past_messages,
             max_tokens=self.chat_token_limit - len(original_user_query),
             fallback_to_default=True,
@@ -101,7 +101,7 @@ class AdvancedRAGChat:
         messages = build_messages(
             model=self.chat_model,
             system_prompt=overrides.get("prompt_template") or self.answer_prompt_template,
-            new_user_message=original_user_query + "\n\nSources:\n" + content,
+            new_user_content=original_user_query + "\n\nSources:\n" + content,
             past_messages=past_messages,
             max_tokens=messages_token_limit,
             fallback_to_default=True,
