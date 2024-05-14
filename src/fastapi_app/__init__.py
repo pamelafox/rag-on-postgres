@@ -1,124 +1,55 @@
-from __future__ import annotations
-
 import contextlib
-import json
 import logging
 import os
 
 import azure.identity.aio
-import fastapi
-import openai
-import sqlalchemy.exc
-from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
 from environs import Env
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from fastapi import FastAPI
 
 from .globals import global_storage
-from .postgres_models import Base, Item
+from .openai_clients import create_openai_chat_client, create_openai_embed_client
+from .postgres_engine import create_postgres_engine_from_env
+
+logger = logging.getLogger("ragapp")
 
 
 @contextlib.asynccontextmanager
-async def lifespan(app: fastapi.FastAPI):
-    # setup db engine
+async def lifespan(app: FastAPI):
     load_dotenv(override=True)
 
-    POSTGRES_HOST = os.environ["POSTGRES_HOST"]
-    POSTGRES_USERNAME = os.environ["POSTGRES_USERNAME"]
-    POSTGRES_DATABASE = os.environ["POSTGRES_DATABASE"]
+    azure_credential = None
+    try:
+        if client_id := os.getenv("APP_IDENTITY_ID"):
+            # Authenticate using a user-assigned managed identity on Azure
+            # See web.bicep for value of APP_IDENTITY_ID
+            logger.info(
+                "Using managed identity for client ID %s",
+                client_id,
+            )
+            azure_credential = azure.identity.aio.ManagedIdentityCredential(client_id=client_id)
+        else:
+            azure_credential = azure.identity.aio.DefaultAzureCredential()
+    except Exception as e:
+        logger.warning("Failed to authenticate to Azure: %s", e)
 
-    if POSTGRES_HOST.endswith(".database.azure.com"):
-        print("Authenticating to Azure Database for PostgreSQL using Azure Identity...")
-        azure_credential = DefaultAzureCredential()
-        token = azure_credential.get_token("https://ossrdbms-aad.database.windows.net/.default")
-        POSTGRES_PASSWORD = token.token
-    else:
-        POSTGRES_PASSWORD = os.environ["POSTGRES_PASSWORD"]
-
-    DATABASE_URI = f"postgresql+asyncpg://{POSTGRES_USERNAME}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}/{POSTGRES_DATABASE}"
-    # Specify SSL mode if needed
-    if POSTGRES_SSL := os.environ.get("POSTGRES_SSL"):
-        DATABASE_URI += f"?ssl={POSTGRES_SSL}"
-
-    engine = create_async_engine(
-        DATABASE_URI,
-        echo=False,
-    )
-    async with engine.begin() as conn:
-        # Create pgvector extension
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        # Create all tables (and indexes) defined in this model in the database
-        await conn.run_sync(Base.metadata.create_all)
-
-    async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
-
-    async with async_session_maker() as session:
-        # Insert the items from the JSON file into the database
-        current_dir = os.path.dirname(os.path.realpath(__file__))
-        with open(os.path.join(current_dir, "catalog.json")) as f:
-            catalog_items = json.load(f)
-            for catalog_item in catalog_items:
-                # check if item already exists
-                item = await session.execute(select(Item).filter(Item.id == catalog_item["Id"]))
-                if item.scalars().first():
-                    continue
-                item = Item(
-                    id=catalog_item["Id"],
-                    type=catalog_item["Type"],
-                    brand=catalog_item["Brand"],
-                    name=catalog_item["Name"],
-                    description=catalog_item["Description"],
-                    price=catalog_item["Price"],
-                    embedding=catalog_item["Embedding"],
-                )
-                session.add(item)
-            try:
-                await session.commit()
-            except sqlalchemy.exc.IntegrityError:
-                pass
+    engine = await create_postgres_engine_from_env(azure_credential)
     global_storage.engine = engine
-    global_storage.async_session_maker = async_session_maker
 
-    OPENAI_CHAT_HOST = os.getenv("OPENAI_CHAT_HOST")
-    if OPENAI_CHAT_HOST == "azure":
-        token_provider = azure.identity.get_bearer_token_provider(
-            azure.identity.DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
-        )
-        global_storage.openai_chat_client = openai.AsyncAzureOpenAI(
-            api_version=os.getenv("AZURE_OPENAI_VERSION"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            azure_ad_token_provider=token_provider,
-            azure_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),
-        )
-        global_storage.openai_chat_model = os.getenv("AZURE_OPENAI_CHAT_MODEL")
-    elif OPENAI_CHAT_HOST == "ollama":
-        global_storage.openai_chat_client = openai.AsyncOpenAI(
-            base_url=os.getenv("OLLAMA_ENDPOINT"),
-            api_key="nokeyneeded",
-        )
-        global_storage.openai_chat_model = os.getenv("OLLAMA_CHAT_MODEL")
-    else:
-        global_storage.openai_chat_client = openai.AsyncOpenAI(api_key=os.getenv("OPENAICOM_KEY"))
-        global_storage.openai_chat_model = os.getenv("OPENAICOM_CHAT_MODEL")
+    openai_chat_client, openai_chat_model = await create_openai_chat_client(azure_credential)
+    global_storage.openai_chat_client = openai_chat_client
+    global_storage.openai_chat_model = openai_chat_model
 
-    OPENAI_EMBED_HOST = os.getenv("OPENAI_EMBED_HOST")
-    if OPENAI_EMBED_HOST == "azure":
-        token_provider = azure.identity.get_bearer_token_provider(
-            azure.identity.DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
-        )
-        global_storage.openai_embed_client = openai.AsyncAzureOpenAI(
-            api_version=os.getenv("AZURE_OPENAI_VERSION"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            azure_ad_token_provider=token_provider,
-            azure_deployment=os.getenv("AZURE_OPENAI_EMBED_DEPLOYMENT"),
-        )
-        global_storage.openai_embed_model = os.getenv("AZURE_OPENAI_EMBED_MODEL")
-    else:
-        global_storage.openai_embed_client = openai.AsyncOpenAI(api_key=os.getenv("OPENAICOM_KEY"))
-        global_storage.openai_embed_model = os.getenv("OPENAICOM_EMBED_MODEL")
+    openai_embed_client, openai_embed_model, openai_embed_dimensions = await create_openai_embed_client(
+        azure_credential
+    )
+    global_storage.openai_embed_client = openai_embed_client
+    global_storage.openai_embed_model = openai_embed_model
+    global_storage.openai_embed_dimensions = openai_embed_dimensions
 
     yield
+
+    await engine.dispose()
 
 
 def create_app():
@@ -126,15 +57,16 @@ def create_app():
 
     if not os.getenv("RUNNING_IN_PRODUCTION"):
         env.read_env(".env")
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=logging.INFO)
+    else:
+        logging.basicConfig(level=logging.WARNING)
 
-    app = fastapi.FastAPI(docs_url="/", lifespan=lifespan)
+    app = FastAPI(docs_url="/docs", lifespan=lifespan)
 
-    from . import routes  # noqa
+    from . import api_routes  # noqa
+    from . import frontend_routes  # noqa
 
-    app.include_router(routes.router)
+    app.include_router(api_routes.router)
+    app.mount("/", frontend_routes.router)
 
     return app
-
-
-app = create_app()

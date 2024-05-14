@@ -12,7 +12,7 @@ def build_search_function() -> list[ChatCompletionToolParam]:
             "type": "function",
             "function": {
                 "name": "search_database",
-                "description": "Search PostgreSQL database for relevant products based on the user query",
+                "description": "Search PostgreSQL database for relevant products based on user query",
                 "parameters": {
                     "type": "object",
                     "properties": {

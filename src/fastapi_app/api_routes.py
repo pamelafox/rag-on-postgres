@@ -11,7 +11,7 @@ router = fastapi.APIRouter()
 @router.post("/chat")
 async def chat_handler(chat_request: ChatRequest):
     ragchat = AdvancedRAGChat(
-        searcher=PostgresSearcher(global_storage.async_session_maker),
+        searcher=PostgresSearcher(global_storage.engine),
         openai_chat_client=global_storage.openai_chat_client,
         chat_model=global_storage.openai_chat_model,
         chat_deployment=global_storage.openai_chat_deployment,

@@ -1,13 +1,14 @@
 from pgvector.utils import to_db
 from sqlalchemy import Float, Integer, select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from .postgres_models import Item
 
 
 class PostgresSearcher:
 
-    def __init__(self, async_session_maker):
-        self.async_session_maker = async_session_maker
+    def __init__(self, engine):
+        self.async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
     def build_filter_clause(self, filters) -> tuple[str, str]:
         if filters is None:

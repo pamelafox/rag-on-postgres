@@ -20,7 +20,7 @@ class Item(Base):
     name: Mapped[str] = mapped_column()
     description: Mapped[str] = mapped_column()
     price: Mapped[float] = mapped_column()
-    embedding: Mapped[Vector] = mapped_column(Vector(1536))
+    embedding: Mapped[Vector] = mapped_column(Vector(1536))  # ada-002
 
     def to_dict(self, include_embedding: bool = False):
         model_dict = asdict(self)
@@ -33,12 +33,15 @@ class Item(Base):
     def to_str_for_rag(self):
         return f"Name:{self.name} Description:{self.description} Price:{self.price} Brand:{self.brand} Type:{self.type}"
 
+    def to_str_for_embedding(self):
+        return f"Name: {self.name} Description: {self.description} Type: {self.type}"
+
 
 # Define HNSW index to support vector similarity search through the vector_cosine_ops access method (cosine distance).
 index = Index(
-    "hnsw_index_for_cosine_distance_similarity_search",
+    "hnsw_index_for_innerproduct_item_embedding",
     Item.embedding,
     postgresql_using="hnsw",
     postgresql_with={"m": 16, "ef_construction": 64},
-    postgresql_ops={"embedding": "vector_cosine_ops"},
+    postgresql_ops={"embedding": "vector_ip_ops"},
 )
