@@ -18,7 +18,7 @@
         "type": "debugpy",
         "request": "launch",
         "module": "uvicorn",
-        "args": ["fastapi_app:app", "--reload"],
+        "args": ["fastapi_app:create_app", "--factory", "--reload"],
         "envFile": "${input:dotEnvFilePath}",
         "justMyCode": true
     }

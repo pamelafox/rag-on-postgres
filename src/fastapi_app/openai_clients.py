@@ -4,7 +4,7 @@ import os
 import azure.identity.aio
 import openai
 
-logger = logging.getLogger("fastapi_app")
+logger = logging.getLogger("ragapp")
 
 
 async def create_openai_chat_client(azure_credential):

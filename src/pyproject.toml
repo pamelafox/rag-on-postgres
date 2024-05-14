@@ -15,7 +15,8 @@ dependencies = [
     "pgvector",
     "openai",
     "tiktoken",
-    "openai-messages-token-helper"
+    "openai-messages-token-helper",
+    "rich"
 ]
 
 [build-system]

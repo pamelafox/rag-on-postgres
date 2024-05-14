@@ -129,11 +129,15 @@ Since the local app uses OpenAI models, you should first deploy it for the optim
 
 ### Running the frontend and backend
 
-1. Install the FastAPI app in editable mode:
+1. Run these commands to install the web app as a local package (named `fastapi_app`), set up the local database, and seed it with test data:
 
     ```bash
     python3 -m pip install -e src
+    python ./src/fastapi_app/setup_postgres_database.py
+    python ./src/fastapi_app/setup_postgres_seeddata.p
     ```
+
+    If you opened the project in Codespaces or a Dev Container, these commands will already have been run for you.
 
 2. Run the FastAPI backend:
 
@@ -165,7 +169,9 @@ You may try the [Azure pricing calculator](https://azure.microsoft.com/pricing/c
 
 ## Security Guidelines
 
-This template uses [Managed Identity](https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/overview) the need for developers to manage these credentials. Applications can use managed identities to obtain Microsoft Entra tokens without having to manage any credentials. Additionally, we have added a [GitHub Action tool](https://github.com/microsoft/security-devops-action) that scans the infrastructure-as-code files and generates a report containing any detected issues. To ensure best practices in your repo we recommend that anyone creating solutions based on our templates ensure that the [Github secret scanning](https://docs.github.com/code-security/secret-scanning/about-secret-scanning) setting is enabled in your repos.
+This template uses [Managed Identity](https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/overview) for authenticating to the Azure services used (Azure OpenAI, Azure PostgreSQL Flexible Server).
+
+Additionally, we have added a [GitHub Action](https://github.com/microsoft/security-devops-action) that scans the infrastructure-as-code files and generates a report containing any detected issues. To ensure continued best practices in your own repository, we recommend that anyone creating solutions based on our templates ensure that the [Github secret scanning](https://docs.github.com/code-security/secret-scanning/about-secret-scanning) setting is enabled.
 
 ## Resources
 

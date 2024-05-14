@@ -1,7 +1,6 @@
 class Global:
     def __init__(self):
         self.engine = None
-        self.async_session_maker = None
         self.openai_chat_client = None
         self.openai_embed_client = None
         self.openai_chat_model = None

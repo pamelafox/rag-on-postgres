@@ -22,8 +22,13 @@ services:
                     continueOnError: false
 hooks:
     postprovision:
-      posix:
-        shell: sh
-        run: ./scripts/assign_role.sh
-        interactive: true
-        continueOnError: false
+        windows:
+            shell: pwsh
+            run: .\scripts\setup_postgres_database.ps1;.\scripts\setup_postgres_azurerole.ps1;.\scripts\setup_postgres_seeddata.ps1
+            interactive: true
+            continueOnError: false
+        posix:
+            shell: sh
+            run: ./scripts/setup_postgres_database.sh;./scripts/setup_postgres_azurerole.sh;./scripts/setup_postgres_seeddata.sh
+            interactive: true
+            continueOnError: false
