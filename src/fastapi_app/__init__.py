@@ -1,11 +1,13 @@
 import contextlib
 import logging
 import os
+from pathlib import Path
 
 import azure.identity.aio
-import fastapi
 from dotenv import load_dotenv
 from environs import Env
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from .globals import global_storage
 from .openai_clients import create_openai_chat_client, create_openai_embed_client
@@ -15,7 +17,7 @@ logger = logging.getLogger("fastapi_app")
 
 
 @contextlib.asynccontextmanager
-async def lifespan(app: fastapi.FastAPI):
+async def lifespan(app: FastAPI):
     load_dotenv(override=True)
 
     azure_credential = None
@@ -60,11 +62,13 @@ def create_app():
     else:
         logging.basicConfig(level=logging.INFO)
 
-    app = fastapi.FastAPI(docs_url="/", lifespan=lifespan)
+    app = FastAPI(docs_url="/docs", lifespan=lifespan)
 
-    from . import routes  # noqa
+    from . import api_routes  # noqa
+    from . import frontend_routes  # noqa
 
-    app.include_router(routes.router)
+    app.include_router(api_routes.router)
+    app.mount("/", frontend_routes.router)
 
     return app
 

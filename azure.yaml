@@ -4,10 +4,22 @@ metadata:
     template: azure-rag-postgres-python@0.0.1
 services:
     web:
-        project: src
+        project: ./src
         language: py
         module: web
         host: containerapp
+        hooks:
+            prepackage:
+                windows:
+                    shell: pwsh
+                    run:  cd frontend;npm install;npm run build
+                    interactive: false
+                    continueOnError: false
+                posix:
+                    shell: sh
+                    run:  cd frontend;npm install;npm run build
+                    interactive: false
+                    continueOnError: false
 hooks:
     postprovision:
       posix:
