@@ -1,7 +1,8 @@
 # RAG on PostgreSQL
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](placeholder)
-[![Open in Dev Containers](https://img.shields.io/static/v1?style=for-the-badge&label=Dev%20Containers&message=Open&color=blue&logo=visualstudiocode)](placeholder)
+> [!IMPORTANT]
+> This repository is now archived in favor of https://github.com/Azure-Samples/rag-postgres-openai-python/
+> The new repo has the same features, plus support for deployment to Azure.
 
 This project creates a web-based chat application with an API backend that can use OpenAI chat models to answer questions about the items in a PostgreSQL database table. The frontend is built with React and FluentUI, while the backend is written with Python and FastAPI.
 
